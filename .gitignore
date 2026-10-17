@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.pdf
+docs/
+.DS_Store/
+config.yaml

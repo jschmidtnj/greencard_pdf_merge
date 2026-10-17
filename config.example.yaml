@@ -1,0 +1,95 @@
+# PDF Merge Configuration Template
+# -----------------------------------------------------------------------------
+# Instructions:
+# 1. Copy this file to 'config.yaml':
+#      cp config.example.yaml config.yaml
+# 2. Adjust the packets, document lists, and text overlays to match your files.
+# 3. Run the merger script:
+#      ./merge_pdfs.py (or python3 merge_pdfs.py)
+# -----------------------------------------------------------------------------
+
+# Root directory where source PDFs are stored (relative to project root)
+source_dir: "docs"
+
+# Global default: Generate top-level outline bookmarks for each document
+bookmarks: true
+
+# Global default: Do not import existing nested sub-bookmarks from source PDFs
+import_sub_bookmarks: false
+
+# -----------------------------------------------------------------------------
+# Packet Definitions
+# Each packet represents a separate merged output PDF.
+# -----------------------------------------------------------------------------
+packets:
+  # ---------------------------------------------------------------------------
+  # Packet 1: Example Petition Packet
+  # ---------------------------------------------------------------------------
+  i130_packet:
+    output: "i_130_petition_packet.pdf"
+    description: "I-130 Petition for Alien Relative"
+
+    # Optional: Custom text or checkmark overlays applied directly to pages
+    # Uses PyMuPDF. Page coordinates start at (0, 0) in the top-left corner.
+    # Standard Letter page is 612 x 792 points (72 points/inch).
+    text_overlays:
+      # Example: Place an "X" checkmark in a specific checkbox on Page 12
+      - page: 12                # 1-based page number in the final merged packet
+        x: 61                   # Horizontal position in points from the left edge
+        y: 490                  # Vertical position (baseline) in points from top edge
+        text: "X"               # Text to insert (e.g. "X", "✔", or custom text)
+        fontsize: 14            # Font size (default: 14)
+        color: [0, 0, 0]        # RGB color tuple: [0, 0, 0] is black
+
+      # Example: Alternatively, specify a bounding box rectangle [x0, y0, x1, y1]
+      # - page: 12
+      #   rect: [60, 476, 75, 490]
+      #   text: "X"
+      #   fontsize: 14
+
+    # List of files to merge in exact sequential order
+    # Paths are relative to 'source_dir' (or relative to repository root)
+    files:
+      # Cover Letter
+      - cover_letter_i_130.pdf
+
+      # Government Forms
+      - forms/g_1145.pdf
+      - forms/i_130.pdf
+      - forms/i_130a.pdf
+
+      # Identity & Evidence Documents
+      - sponsor/passport.pdf
+      - shared/apartment_lease.pdf
+      - shared/joint_bank_statement.pdf
+
+  # ---------------------------------------------------------------------------
+  # Packet 2: Example Adjustment of Status Packet
+  # ---------------------------------------------------------------------------
+  i485_packet:
+    output: "i_485_adjustment_of_status_packet.pdf"
+    description: "I-485 Adjustment of Status Application"
+
+    text_overlays:
+      # Example: Checkmark on Form I-485 or I-864
+      # - page: 5
+      #   x: 85
+      #   y: 515
+      #   text: "X"
+      #   fontsize: 14
+
+    files:
+      # Cover Letter
+      - cover_letter_i_485.pdf
+
+      # Government Forms
+      - forms/g_1145.pdf
+      - forms/i_485.pdf
+      - forms/i_864.pdf
+      - forms/i_765.pdf
+
+      # Applicant Documents
+      - applicant/birth_certificate.pdf
+      - applicant/passport.pdf
+      - applicant/employment_verification.pdf
+      - applicant/paystubs.pdf
