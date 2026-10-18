@@ -33,3 +33,5 @@ This generates:
 - `-c, --config <file>`: Use a different YAML configuration file.
 - `-d, --source-dir <dir>`: Override the source directory (defaults to `docs/`).
 - `--no-bookmarks`: Disable outline/bookmark generation.
+- `--auto-rotate`: Ensure all pages are vertical by rotating landscape pages 90 degrees (default: True).
+- `--no-auto-rotate`: Disable automatic rotation of landscape pages.

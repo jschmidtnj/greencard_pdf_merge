@@ -90,6 +90,19 @@ def parse_arguments():
         default=False,
         help="Import internal sub-bookmarks from source PDFs (default: False)"
     )
+    parser.add_argument(
+        "--auto-rotate",
+        dest="auto_rotate_portrait",
+        action="store_true",
+        default=None,
+        help="Ensure all pages are vertical by rotating landscape pages 90 degrees (default: True)"
+    )
+    parser.add_argument(
+        "--no-auto-rotate",
+        dest="auto_rotate_portrait",
+        action="store_false",
+        help="Disable automatic rotation of landscape pages"
+    )
     return parser.parse_args()
 
 
@@ -144,6 +157,7 @@ def load_config(config_path: Path):
 
     global_bookmarks = data.get("bookmarks", True) if isinstance(data, dict) else True
     global_import_subs = data.get("import_sub_bookmarks", False) if isinstance(data, dict) else False
+    global_auto_rotate = data.get("auto_rotate_portrait", data.get("auto_rotate", True)) if isinstance(data, dict) else True
     source_dir_name = data.get("source_dir", None) if isinstance(data, dict) else None
 
     packets = []
@@ -158,6 +172,7 @@ def load_config(config_path: Path):
             description = pkt_val.get("description", pkt_key)
             bookmarks = pkt_val.get("bookmarks", global_bookmarks)
             import_subs = pkt_val.get("import_sub_bookmarks", global_import_subs)
+            auto_rotate = pkt_val.get("auto_rotate_portrait", pkt_val.get("auto_rotate", global_auto_rotate))
             text_overlays = normalize_text_overlays(pkt_val.get("text_overlays") or pkt_val.get("checkmarks", []))
             packets.append({
                 "key": pkt_key,
@@ -165,6 +180,7 @@ def load_config(config_path: Path):
                 "output": output_name,
                 "bookmarks": bookmarks,
                 "import_sub_bookmarks": import_subs,
+                "auto_rotate_portrait": auto_rotate,
                 "files": normalize_file_entries(raw_files),
                 "text_overlays": text_overlays,
             })
@@ -179,6 +195,7 @@ def load_config(config_path: Path):
             "output": output_name,
             "bookmarks": global_bookmarks,
             "import_sub_bookmarks": global_import_subs,
+            "auto_rotate_portrait": global_auto_rotate,
             "files": normalize_file_entries(raw_files),
             "text_overlays": text_overlays,
         })
@@ -190,6 +207,7 @@ def load_config(config_path: Path):
             "output": "merged.pdf",
             "bookmarks": True,
             "import_sub_bookmarks": False,
+            "auto_rotate_portrait": True,
             "files": normalize_file_entries(data),
             "text_overlays": [],
         })
@@ -238,46 +256,88 @@ def resolve_file_path(entry_path_str: str, base_dir: Path, source_dir: Path, fil
     return None
 
 
-def apply_text_overlays_to_pdf(pdf_path: Path, overlays: list):
-    if not overlays:
+def format_page_ranges(pages: list[int]) -> str:
+    if not pages:
+        return "none"
+    ranges = []
+    start = prev = pages[0]
+    for p in pages[1:]:
+        if p == prev + 1:
+            prev = p
+        else:
+            ranges.append(f"{start}..{prev}" if start != prev else f"{start}")
+            start = prev = p
+    ranges.append(f"{start}..{prev}" if start != prev else f"{start}")
+    if len(ranges) <= 8:
+        return ", ".join(ranges)
+    first_few = ", ".join(ranges[:6])
+    return f"{first_few}, ... ({len(pages)} pages total)"
+
+
+def post_process_merged_pdf(pdf_path: Path, overlays: list = None, auto_rotate_portrait: bool = True):
+    """
+    Post-processes the merged PDF:
+    1. Applies custom text overlays (checkmarks, annotations).
+    2. Auto-rotates any horizontal (landscape) pages 90 degrees clockwise so all pages
+       are vertical (portrait) for clean, reliable printing.
+    """
+    if not overlays and not auto_rotate_portrait:
         return
+
     doc = pymupdf.open(str(pdf_path))
-    applied_count = 0
+    modified = False
     total_pages = len(doc)
 
-    for cm in overlays:
-        page_num = cm["page"]
-        if page_num < 1 or page_num > total_pages:
-            print(f"   ⚠️  Warning: Page {page_num} out of bounds (1..{total_pages}). Skipping checkmark.", file=sys.stderr)
-            continue
+    # 1. Apply any text overlays
+    if overlays:
+        applied_count = 0
+        for cm in overlays:
+            page_num = cm["page"]
+            if page_num < 1 or page_num > total_pages:
+                print(f"   ⚠️  Warning: Page {page_num} out of bounds (1..{total_pages}). Skipping overlay.", file=sys.stderr)
+                continue
 
-        page = doc[page_num - 1]
-        text = cm["text"]
-        fontsize = cm["fontsize"]
-        color = cm["color"]
-        overlay = cm["overlay"]
+            page = doc[page_num - 1]
+            text = cm["text"]
+            fontsize = cm["fontsize"]
+            color = cm["color"]
+            overlay = cm["overlay"]
 
-        if cm.get("rect"):
-            r = cm["rect"]
-            rect = pymupdf.Rect(r[0], r[1], r[2], r[3])
-            point = (rect.x0, rect.y1)
-        elif cm.get("x") is not None and cm.get("y") is not None:
-            point = (float(cm["x"]), float(cm["y"]))
-        else:
-            print(f"   ⚠️  Warning: Checkmark on page {page_num} missing coordinates. Skipping.", file=sys.stderr)
-            continue
+            if cm.get("rect"):
+                r = cm["rect"]
+                rect = pymupdf.Rect(r[0], r[1], r[2], r[3])
+                point = (rect.x0, rect.y1)
+            elif cm.get("x") is not None and cm.get("y") is not None:
+                point = (float(cm["x"]), float(cm["y"]))
+            else:
+                print(f"   ⚠️  Warning: Overlay on page {page_num} missing coordinates. Skipping.", file=sys.stderr)
+                continue
 
-        page.insert_text(
-            point=point,
-            text=text,
-            fontsize=fontsize,
-            color=color,
-            overlay=overlay,
-        )
-        applied_count += 1
-        print(f"   ✍️  Added overlay '{text}' on Page {page_num} at ({point[0]}, {point[1]})")
+            page.insert_text(
+                point=point,
+                text=text,
+                fontsize=fontsize,
+                color=color,
+                overlay=overlay,
+            )
+            applied_count += 1
+            print(f"   ✍️  Added overlay '{text}' on Page {page_num} at ({point[0]}, {point[1]})")
 
-    if applied_count > 0:
+        if applied_count > 0:
+            modified = True
+
+    # 2. Auto-rotate horizontal/landscape pages so all pages are vertical (portrait)
+    if auto_rotate_portrait:
+        rotated_pages = []
+        for i, page in enumerate(doc):
+            if page.rect.width > page.rect.height:
+                page.set_rotation((page.rotation + 90) % 360)
+                rotated_pages.append(i + 1)
+        if rotated_pages:
+            modified = True
+            print(f"   🔄 Rotated {len(rotated_pages)} horizontal page(s) to vertical (portrait): pages {format_page_ranges(rotated_pages)}")
+
+    if modified:
         temp_fd, temp_path = tempfile.mkstemp(suffix=".pdf")
         os.close(temp_fd)
         doc.save(temp_path)
@@ -364,6 +424,7 @@ def main():
 
         add_bookmarks = pkt["bookmarks"] if args.bookmarks is None else args.bookmarks
         import_sub_bookmarks = pkt["import_sub_bookmarks"] or args.import_sub_bookmarks
+        auto_rotate = pkt["auto_rotate_portrait"] if args.auto_rotate_portrait is None else args.auto_rotate_portrait
 
         files_to_merge = []
         missing_files = []
@@ -401,12 +462,21 @@ def main():
 
         writer = PdfWriter()
         total_pages = 0
+        pkt_landscape_pages = 0
         current_page = 1
 
         for idx, item in enumerate(files_to_merge, start=1):
             try:
                 reader = PdfReader(str(item["path"]))
                 page_count = len(reader.pages)
+                for p in reader.pages:
+                    rot = p.rotation or 0
+                    w = float(p.mediabox.width)
+                    h = float(p.mediabox.height)
+                    if rot in (90, 270):
+                        w, h = h, w
+                    if w > h:
+                        pkt_landscape_pages += 1
             except Exception as e:
                 print(f"\n❌ Failed to read PDF '{item['display_name']}': {e}", file=sys.stderr)
                 sys.exit(1)
@@ -434,6 +504,10 @@ def main():
         print("-" * 84)
         print(f"Documents: {len(files_to_merge)} | Total pages: {total_pages}")
         print(f"Bookmarks: {'Enabled (clean document-level only)' if add_bookmarks else 'Disabled'}")
+        if auto_rotate:
+            print(f"Orientation: All vertical (auto-rotating {pkt_landscape_pages} horizontal pages to portrait)")
+        else:
+            print(f"Orientation: Preserving original ({pkt_landscape_pages} horizontal pages)")
 
         if pkt.get("text_overlays"):
             print(f"Text overlays configured: {len(pkt['text_overlays'])}")
@@ -450,9 +524,12 @@ def main():
                 print(f"\n❌ Error writing output file: {e}", file=sys.stderr)
                 sys.exit(1)
 
-            # Apply any checkmarks / overlays with PyMuPDF
-            if pkt.get("text_overlays"):
-                apply_text_overlays_to_pdf(output_path, pkt["text_overlays"])
+            # Apply overlays and auto-rotate horizontal pages to vertical for clean printing
+            post_process_merged_pdf(
+                output_path,
+                overlays=pkt.get("text_overlays"),
+                auto_rotate_portrait=auto_rotate
+            )
 
             file_size = output_path.stat().st_size
             print(f"✅ Success! Created '{output_path.name}' ({format_size(file_size)}, {total_pages} pages)")

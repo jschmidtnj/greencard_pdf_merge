@@ -17,6 +17,10 @@ bookmarks: true
 # Global default: Do not import existing nested sub-bookmarks from source PDFs
 import_sub_bookmarks: false
 
+# Global default: Auto-rotate horizontal/landscape pages 90 degrees to vertical (portrait)
+# so printers do not chop or tile horizontal pages.
+auto_rotate_portrait: true
+
 # -----------------------------------------------------------------------------
 # Packet Definitions
 # Each packet represents a separate merged output PDF.

@@ -84,6 +84,7 @@ In `config.yaml`, customize:
 | `./merge_pdfs.py -c <path>` | Specifies a custom YAML configuration file instead of `config.yaml`. |
 | `./merge_pdfs.py -d <path>` | Overrides the source documents directory. |
 | `./merge_pdfs.py --no-bookmarks` | Disables outline bookmarks for the run. |
+| `./merge_pdfs.py --no-auto-rotate` | Disables automatic rotation of horizontal/landscape pages. |
 
 ### Recommended Workflow for Agents
 1. Whenever modifying `config.yaml` or `merge_pdfs.py`, **always run a dry run first**:

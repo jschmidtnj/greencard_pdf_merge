@@ -66,6 +66,7 @@ Open `config.yaml` to define your packets:
 source_dir: "docs"            # Directory where input PDFs reside
 bookmarks: true               # Generate clickable outline bookmarks
 import_sub_bookmarks: false   # Suppress noisy internal bookmarks from sub-documents
+auto_rotate_portrait: true   # Auto-rotate horizontal/landscape pages to vertical for printing
 
 packets:
   i130_packet:
