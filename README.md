@@ -35,3 +35,5 @@ This generates:
 - `--no-bookmarks`: Disable outline/bookmark generation.
 - `--auto-rotate`: Ensure all pages are vertical by rotating landscape pages 90 degrees (default: True).
 - `--no-auto-rotate`: Disable automatic rotation of landscape pages.
+- `--fit-to-letter`: Scale and center all pages to standard US Letter (8.5x11 inches) (default: True).
+- `--no-fit-to-letter`: Keep original non-standard page sizes.

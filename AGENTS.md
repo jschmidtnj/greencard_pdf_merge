@@ -85,6 +85,7 @@ In `config.yaml`, customize:
 | `./merge_pdfs.py -d <path>` | Overrides the source documents directory. |
 | `./merge_pdfs.py --no-bookmarks` | Disables outline bookmarks for the run. |
 | `./merge_pdfs.py --no-auto-rotate` | Disables automatic rotation of horizontal/landscape pages. |
+| `./merge_pdfs.py --no-fit-to-letter` | Disables automatic resizing to standard US Letter (8.5x11). |
 
 ### Recommended Workflow for Agents
 1. Whenever modifying `config.yaml` or `merge_pdfs.py`, **always run a dry run first**:

@@ -103,6 +103,19 @@ def parse_arguments():
         action="store_false",
         help="Disable automatic rotation of landscape pages"
     )
+    parser.add_argument(
+        "--fit-to-letter",
+        dest="fit_to_letter",
+        action="store_true",
+        default=None,
+        help="Scale and center all pages to standard US Letter (8.5x11 inches = 612x792 pt) (default: True)"
+    )
+    parser.add_argument(
+        "--no-fit-to-letter",
+        dest="fit_to_letter",
+        action="store_false",
+        help="Disable automatic resizing of pages to standard US Letter"
+    )
     return parser.parse_args()
 
 
@@ -158,6 +171,7 @@ def load_config(config_path: Path):
     global_bookmarks = data.get("bookmarks", True) if isinstance(data, dict) else True
     global_import_subs = data.get("import_sub_bookmarks", False) if isinstance(data, dict) else False
     global_auto_rotate = data.get("auto_rotate_portrait", data.get("auto_rotate", True)) if isinstance(data, dict) else True
+    global_fit_to_letter = data.get("fit_to_letter", True) if isinstance(data, dict) else True
     source_dir_name = data.get("source_dir", None) if isinstance(data, dict) else None
 
     packets = []
@@ -173,6 +187,7 @@ def load_config(config_path: Path):
             bookmarks = pkt_val.get("bookmarks", global_bookmarks)
             import_subs = pkt_val.get("import_sub_bookmarks", global_import_subs)
             auto_rotate = pkt_val.get("auto_rotate_portrait", pkt_val.get("auto_rotate", global_auto_rotate))
+            fit_to_letter = pkt_val.get("fit_to_letter", global_fit_to_letter)
             text_overlays = normalize_text_overlays(pkt_val.get("text_overlays") or pkt_val.get("checkmarks", []))
             packets.append({
                 "key": pkt_key,
@@ -181,6 +196,7 @@ def load_config(config_path: Path):
                 "bookmarks": bookmarks,
                 "import_sub_bookmarks": import_subs,
                 "auto_rotate_portrait": auto_rotate,
+                "fit_to_letter": fit_to_letter,
                 "files": normalize_file_entries(raw_files),
                 "text_overlays": text_overlays,
             })
@@ -196,6 +212,7 @@ def load_config(config_path: Path):
             "bookmarks": global_bookmarks,
             "import_sub_bookmarks": global_import_subs,
             "auto_rotate_portrait": global_auto_rotate,
+            "fit_to_letter": global_fit_to_letter,
             "files": normalize_file_entries(raw_files),
             "text_overlays": text_overlays,
         })
@@ -208,6 +225,7 @@ def load_config(config_path: Path):
             "bookmarks": True,
             "import_sub_bookmarks": False,
             "auto_rotate_portrait": True,
+            "fit_to_letter": True,
             "files": normalize_file_entries(data),
             "text_overlays": [],
         })
@@ -254,6 +272,57 @@ def resolve_file_path(entry_path_str: str, base_dir: Path, source_dir: Path, fil
         return matches[0]
 
     return None
+
+
+def fit_page_to_letter(page, target_w: float = 612.0, target_h: float = 792.0) -> bool:
+    """
+    Ensures the page is vertical (portrait) and scaled/centered to fit
+    standard US Letter dimensions (8.5 x 11 inches = 612 x 792 pt).
+    Returns True if the page was rotated or scaled, False if already standard Letter.
+    """
+    rot = (page.rotation or 0) % 360
+    mb = page.mediabox
+    w = float(mb.width)
+    h = float(mb.height)
+
+    # Determine visual width and height given current rotation
+    vis_w = h if rot in (90, 270) else w
+    vis_h = w if rot in (90, 270) else h
+
+    modified = False
+
+    # 1. Rotate if horizontal (landscape)
+    if vis_w > vis_h:
+        page.rotate(90)
+        rot = (rot + 90) % 360
+        vis_w, vis_h = vis_h, vis_w
+        modified = True
+
+    # Check if already standard Letter (within 1pt)
+    if abs(vis_w - target_w) < 1.0 and abs(vis_h - target_h) < 1.0:
+        return modified
+
+    # 2. Scale to fit proportionally within 612 x 792
+    scale = min(target_w / vis_w, target_h / vis_h)
+    page.scale_by(scale)
+
+    # 3. Center on 612 x 792 canvas by adjusting mediabox & cropbox
+    cur_w = float(page.mediabox.width)
+    cur_h = float(page.mediabox.height)
+
+    # Under rot in (90, 270), mediabox width corresponds to visual height
+    needed_w = target_h if rot in (90, 270) else target_w
+    needed_h = target_w if rot in (90, 270) else target_h
+
+    dw = (needed_w - cur_w) / 2.0
+    dh = (needed_h - cur_h) / 2.0
+
+    page.mediabox.lower_left = (-dw, -dh)
+    page.mediabox.upper_right = (cur_w + dw, cur_h + dh)
+    page.cropbox.lower_left = (-dw, -dh)
+    page.cropbox.upper_right = (cur_w + dw, cur_h + dh)
+
+    return True
 
 
 def format_page_ranges(pages: list[int]) -> str:
@@ -425,6 +494,7 @@ def main():
         add_bookmarks = pkt["bookmarks"] if args.bookmarks is None else args.bookmarks
         import_sub_bookmarks = pkt["import_sub_bookmarks"] or args.import_sub_bookmarks
         auto_rotate = pkt["auto_rotate_portrait"] if args.auto_rotate_portrait is None else args.auto_rotate_portrait
+        fit_to_letter = pkt["fit_to_letter"] if args.fit_to_letter is None else args.fit_to_letter
 
         files_to_merge = []
         missing_files = []
@@ -463,6 +533,7 @@ def main():
         writer = PdfWriter()
         total_pages = 0
         pkt_landscape_pages = 0
+        pkt_non_letter_pages = 0
         current_page = 1
 
         for idx, item in enumerate(files_to_merge, start=1):
@@ -470,13 +541,16 @@ def main():
                 reader = PdfReader(str(item["path"]))
                 page_count = len(reader.pages)
                 for p in reader.pages:
-                    rot = p.rotation or 0
+                    rot = (p.rotation or 0) % 360
                     w = float(p.mediabox.width)
                     h = float(p.mediabox.height)
-                    if rot in (90, 270):
-                        w, h = h, w
-                    if w > h:
+                    vis_w = h if rot in (90, 270) else w
+                    vis_h = w if rot in (90, 270) else h
+                    if vis_w > vis_h:
                         pkt_landscape_pages += 1
+                        vis_w, vis_h = vis_h, vis_w
+                    if abs(vis_w - 612.0) >= 1.0 or abs(vis_h - 792.0) >= 1.0:
+                        pkt_non_letter_pages += 1
             except Exception as e:
                 print(f"\n❌ Failed to read PDF '{item['display_name']}': {e}", file=sys.stderr)
                 sys.exit(1)
@@ -504,10 +578,12 @@ def main():
         print("-" * 84)
         print(f"Documents: {len(files_to_merge)} | Total pages: {total_pages}")
         print(f"Bookmarks: {'Enabled (clean document-level only)' if add_bookmarks else 'Disabled'}")
-        if auto_rotate:
+        if fit_to_letter:
+            print(f"Page size:   All standard US Letter (8.5\" x 11\") (auto-fitting {pkt_non_letter_pages} non-Letter, {pkt_landscape_pages} horizontal page(s))")
+        elif auto_rotate:
             print(f"Orientation: All vertical (auto-rotating {pkt_landscape_pages} horizontal pages to portrait)")
         else:
-            print(f"Orientation: Preserving original ({pkt_landscape_pages} horizontal pages)")
+            print(f"Orientation: Preserving original ({pkt_landscape_pages} horizontal, {pkt_non_letter_pages} non-Letter page(s))")
 
         if pkt.get("text_overlays"):
             print(f"Text overlays configured: {len(pkt['text_overlays'])}")
@@ -516,6 +592,15 @@ def main():
                 print(f"   • Page {cm['page']}: '{cm['text']}' at {pos}")
 
         if not args.dry_run:
+            # Scale and center pages to standard 8.5x11 US Letter if enabled
+            if fit_to_letter:
+                resized_pages = []
+                for i, page in enumerate(writer.pages):
+                    if fit_page_to_letter(page):
+                        resized_pages.append(i + 1)
+                if resized_pages:
+                    print(f"   📐 Scaled/fit {len(resized_pages)} page(s) to 8.5x11 Letter: pages {format_page_ranges(resized_pages)}")
+
             print(f"💾 Writing packet to: {output_path.name}...")
             try:
                 with open(output_path, "wb") as out_f:

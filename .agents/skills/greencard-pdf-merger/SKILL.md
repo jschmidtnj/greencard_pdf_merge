@@ -67,6 +67,7 @@ source_dir: "docs"            # Directory where input PDFs reside
 bookmarks: true               # Generate clickable outline bookmarks
 import_sub_bookmarks: false   # Suppress noisy internal bookmarks from sub-documents
 auto_rotate_portrait: true   # Auto-rotate horizontal/landscape pages to vertical for printing
+fit_to_letter: true          # Scale and center all pages to standard US Letter (8.5 x 11)
 
 packets:
   i130_packet:

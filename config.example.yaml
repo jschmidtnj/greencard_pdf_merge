@@ -21,6 +21,10 @@ import_sub_bookmarks: false
 # so printers do not chop or tile horizontal pages.
 auto_rotate_portrait: true
 
+# Global default: Scale and center all pages to standard US Letter (8.5 x 11 inches)
+# so oversized documents (Legal, Tabloid, A4) print cleanly without clipping.
+fit_to_letter: true
+
 # -----------------------------------------------------------------------------
 # Packet Definitions
 # Each packet represents a separate merged output PDF.
